@@ -1,59 +1,36 @@
+import logging
 from datetime import datetime
-from typing import Iterator
+from functools import lru_cache
+from typing import Iterator, List, Union, Type
 
 import requests
 import xmltodict
 
-from nintendeals.classes.games import Game
-from nintendeals.constants import JP, SWITCH
+from nintendeals.classes import N3dsGame, SwitchGame
+from nintendeals.constants import JP
 
-LISTING_URL = 'https://www.nintendo.co.jp/data/software/xml/{platform}.xml'
-
-FILENAMES = {
-    SWITCH: "switch",
-}
+log = logging.getLogger(__name__)
 
 
-def list_games(platform: str) -> Iterator[Game]:
-    """
-        Given a supported platform it will provide an iterator
-    of with a subset of data for all games found in the listing
-    service Nintendo of Japan.
-
-    Game data
-    ---------
-        * title: str
-        * region: str (JP)
-        * platform: str
-        * nsuid: str
-        * product_code: str
-
-        * developer: str
-        * free_to_play: bool
-        * release_date: datetime
-
-    Parameters
-    ----------
-    platform: str
-        Valid nintendo platform.
-
-    Returns
-    -------
-    Iterator[classes.nintendeals.games.Game]:
-        Partial information of a game provided by NoJ.
-    """
-    assert platform in FILENAMES
-
-    url = LISTING_URL.format(platform=FILENAMES.get(platform))
+@lru_cache()
+def _list_games(
+    game_class: Type,
+    filename: str
+) -> List[Union[N3dsGame, SwitchGame]]:
+    url = f"https://www.nintendo.co.jp/data/software/xml/{filename}.xml"
     response = requests.get(url)
 
-    games_data = xmltodict.parse(response.text)['TitleInfoList']['TitleInfo']
+    if response.status_code != 200:
+        return []
 
-    for data in games_data:
-        game = Game(
-            title=data["TitleName"],
+    xml = xmltodict.parse(response.text)['TitleInfoList']['TitleInfo']
+
+    games = []
+
+    for data in xml:
+        game = game_class(
             region=JP,
-            platform=platform,
+            title=data["TitleName"],
             nsuid=data["LinkURL"].split("/")[-1],
             product_code=data["InitialCode"],
         )
@@ -62,8 +39,73 @@ def list_games(platform: str) -> Iterator[Game]:
         game.free_to_play = data.get("Price") == "無料"
 
         try:
-            game.release_date = datetime.strptime(data.get('SalesDate'), '%Y.%m.%d')
-        except:
-            return None
+            game.release_date = datetime.strptime(
+                data.get('SalesDate'),
+                '%Y.%m.%d'
+            )
+        except (ValueError, TypeError):
+            game.release_date = None
 
-        yield game
+        game.banner_img = data.get("ScreenshotImgURL")
+
+        games.append(game)
+
+    return games
+
+
+def list_3ds_games() -> Iterator[N3dsGame]:
+    """
+        List all the 3DS games in Nintendo of Japan. The following subset
+    of data will be available for each game.
+
+    Game data
+    ---------
+        * platform: str ["Nintendo 3DS"]
+        * region: str ["JP"]
+        * title: str
+        * nsuid: str
+        * product_code: str
+
+        * developer: str
+        * free_to_play: bool
+        * release_date: datetime (optional)
+
+        * banner_img: str
+
+    Yields
+    -------
+    nintendeals.classes.N3dsGame:
+        3DS game from Nintendo of Japan.
+    """
+    log.info("Fetching list of Nintendo 3DS games")
+
+    yield from _list_games(N3dsGame, filename="3ds_pkg_dl")
+
+
+def list_switch_games() -> Iterator[SwitchGame]:
+    """
+        List all the Switch games in Nintendo of Japan. The following subset
+    of data will be available for each game.
+
+    Game data
+    ---------
+        * platform: str ["Nintendo Switch"]
+        * region: str ["JP"]
+        * title: str
+        * nsuid: str
+        * product_code: str
+
+        * developer: str
+        * free_to_play: bool
+        * release_date: datetime (optional)
+
+        * banner_img: str
+
+    Yields
+    -------
+    nintendeals.classes.SwitchGame:
+        Switch game from Nintendo of Japan.
+    """
+    log.info("Fetching list of Nintendo Switch games")
+
+    yield from _list_games(SwitchGame, filename="switch")

@@ -1,3 +1,6 @@
+SWITCH = "Nintendo Switch"
+N3DS = "Nintendo 3DS"
+
 NA = "NA"
 EU = "EU"
 JP = "JP"
@@ -8,10 +11,3 @@ REGIONS = {
     JP: "Japan",
 }
 
-
-SWITCH = "Nintendo Switch"
-
-PLATFORMS = {
-    SWITCH: SWITCH,
-    "switch": SWITCH,
-}
